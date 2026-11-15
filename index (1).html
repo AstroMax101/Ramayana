@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ramayana: Part 1 — Live Box Office Tracker</title>
+<style>
+  :root{
+    --black:#000000;
+    --off:#0A0A0A;
+    --char:#141414;
+    --white:#FFFFFF;
+    --hair:#262626;
+    --muted:#888888;
+    --sans:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--black);color:var(--white);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;font-size:14px;line-height:1.5}
+  .mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  button,input{font:inherit;color:inherit}
+
+  .wrap{max-width:1200px;margin:0 auto;padding:0 20px 48px}
+
+  /* Header */
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding:18px 0;border-bottom:1px solid var(--hair)}
+  .brand{display:flex;flex-direction:column;gap:2px}
+  .brand h1{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .status{display:flex;align-items:center;gap:14px}
+  .live{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.14em;border:1px solid var(--white);padding:5px 10px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--white);position:relative}
+  .dot::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--white);
+    animation:pulse 1.6s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(1);opacity:.7}100%{transform:scale(3.2);opacity:0}}
+  .live.paused{border-color:var(--muted);color:var(--muted)}
+  .live.paused .dot{background:var(--muted)}
+  .live.paused .dot::after{animation:none;opacity:0}
+  #clock{font-size:12px;color:var(--muted)}
+
+  /* Hero */
+  .hero{padding:40px 0 32px;border-bottom:1px solid var(--hair)}
+  .hero .label{margin-bottom:12px;display:block}
+  .odo-big{font-size:clamp(40px,10vw,112px);font-weight:500;letter-spacing:-.04em;line-height:1}
+  .hero-sub{margin-top:18px;display:flex;gap:28px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+  .hero-sub b{color:var(--white);font-weight:500}
+
+  /* Odometer */
+  .odo{display:inline-flex;align-items:baseline;white-space:pre}
+  .odo .col{display:inline-block;height:1em;line-height:1em;overflow:hidden;width:1ch;position:relative;vertical-align:top}
+  .odo .strip{display:block;transition:transform .9s cubic-bezier(.2,.8,.2,1)}
+  .odo .strip span{display:block;height:1em;line-height:1em;text-align:center}
+  .odo .ch{display:inline-block;line-height:1em;height:1em}
+  .odo .unit{color:var(--muted);font-size:.3em;margin-left:.6em;letter-spacing:.08em;align-self:flex-end;line-height:1}
+
+  /* Grid cards */
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:0;margin-top:0;border-left:1px solid var(--hair)}
+  .cell{grid-column:span 3;padding:22px 20px;border-right:1px solid var(--hair);border-bottom:1px solid var(--hair);background:var(--black)}
+  .cell .v{font-size:clamp(22px,3vw,32px);font-weight:500;margin-top:10px;letter-spacing:-.02em}
+  .cell .v small{font-size:.45em;color:var(--muted);margin-left:6px;letter-spacing:.06em}
+  .cell .note{margin-top:6px;font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .cell.c4{grid-column:span 4}
+  .cell.c6{grid-column:span 6}
+  .cell.c12{grid-column:span 12}
+  .grid.top{border-top:1px solid var(--hair)}
+
+  .odo-mid{font-size:clamp(26px,3.4vw,40px);font-weight:500;letter-spacing:-.03em;margin-top:10px;display:block}
+
+  /* Language bars */
+  .sec-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px}
+  .lang{display:grid;grid-template-columns:96px 1fr 120px;gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--hair)}
+  .lang:first-of-type{border-top:0}
+  .lang .name{font-size:13px}
+  .bar{height:6px;background:var(--hair);position:relative;overflow:hidden}
+  .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--white);width:0;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+  .lang .meta{text-align:right;font-size:12px}
+  .lang .meta span{color:var(--muted)}
+
+  /* Feed */
+  .feed{height:300px;overflow-y:auto;border:1px solid var(--hair);background:var(--off);padding:6px 0;font-family:var(--mono);font-size:12px}
+  .feed::-webkit-scrollbar{width:6px}
+  .feed::-webkit-scrollbar-thumb{background:var(--hair)}
+  .feed div{padding:5px 14px;border-bottom:1px solid #111;display:flex;gap:10px}
+  .feed div:first-child{background:var(--char)}
+  .feed .t{color:var(--muted);flex:none}
+  .feed .p{color:var(--white)}
+  .feed .o{color:var(--muted)}
+
+  /* Controls */
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .btn{background:transparent;border:1px solid var(--hair);padding:8px 14px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.06em;cursor:pointer;transition:background .15s,color .15s,border-color .15s;text-transform:uppercase}
+  .btn:hover,.btn.active{background:var(--white);color:var(--black);border-color:var(--white)}
+  .btn:focus-visible,input:focus-visible{outline:1px solid var(--white);outline-offset:2px}
+  .group{display:inline-flex}
+  .group .btn{border-right-width:0}
+  .group .btn:last-child{border-right-width:1px}
+  .override{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;margin-top:16px;align-items:end}
+  .field{display:flex;flex-direction:column;gap:6px}
+  input[type=number]{background:var(--off);border:1px solid var(--hair);padding:9px 12px;font-family:var(--mono);font-size:13px;width:100%;
+    font-variant-numeric:tabular-nums;border-radius:0}
+  input[type=number]:focus{border-color:var(--white);outline:none}
+
+  footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--hair);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:11px;font-family:var(--mono)}
+
+  @media(max-width:860px){
+    .cell,.cell.c4{grid-column:span 6}
+    .cell.c6{grid-column:span 12}
+  }
+  @media(max-width:520px){
+    .cell,.cell.c4{grid-column:span 12}
+    .lang{grid-template-columns:76px 1fr 96px;gap:10px}
+    .override{grid-template-columns:1fr}
+    .wrap{padding:0 14px 40px}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .dot::after{animation:none}
+    .odo .strip,.bar i{transition:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="label">Box Office Terminal</span>
+      <h1>Ramayana: Part 1 — Live Tracker</h1>
+    </div>
+    <div class="status">
+      <span id="clock" class="mono">--:--:--</span>
+      <span id="live" class="live"><span class="dot"></span><span id="liveText">[ LIVE ]</span></span>
+    </div>
+  </header>
+
+  <section class="hero" aria-label="Worldwide gross">
+    <span class="label">Worldwide Gross · INR</span>
+    <div class="odo-big mono"><span class="odo" id="odoWW" aria-live="off"></span></div>
+    <div class="hero-sub mono">
+      <span>DAY <b id="dayEcho">11</b></span>
+      <span>SPEED <b id="speedEcho">1x</b></span>
+      <span>AS OF <b id="asOfEcho">—</b></span>
+      <span>LAST PULSE <b id="lastPulse">—</b></span>
+      <span>SESSION <b id="sessionAdd">+₹0.00 Cr</b></span>
+    </div>
+  </section>
+
+  <section class="grid top" aria-label="Gross breakdown">
+    <div class="cell c6">
+      <span class="label">India Gross</span>
+      <span class="odo-mid mono"><span class="odo" id="odoIN"></span></span>
+      <div class="note">DOMESTIC · ALL LANGUAGES</div>
+    </div>
+    <div class="cell c6">
+      <span class="label">Overseas Gross</span>
+      <span class="odo-mid mono"><span class="odo" id="odoOS"></span></span>
+      <div class="note">INTERNATIONAL · ALL MARKETS</div>
+    </div>
+
+    <div class="cell">
+      <span class="label">India Net</span>
+      <div class="v num" id="net">—</div>
+      <div class="note">GROSS × 0.8367 · POST-GST</div>
+    </div>
+    <div class="cell">
+      <span class="label">USD Equivalent</span>
+      <div class="v num" id="usd">—</div>
+      <div class="note">WW × 10 ÷ 95 · MILLIONS</div>
+    </div>
+    <div class="cell">
+      <span class="label">Est. Footfalls</span>
+      <div class="v num" id="foot">—</div>
+      <div class="note">INDIA GROSS ÷ ₹220 ATP</div>
+    </div>
+    <div class="cell">
+      <span class="label">Active Shows</span>
+      <div class="v num">23,450<small>+</small></div>
+      <div class="note">ACROSS 5 LANGUAGES</div>
+    </div>
+  </section>
+
+  <section class="grid" aria-label="Language and feed" style="border-top:0">
+    <div class="cell c6">
+      <div class="sec-head"><span class="label">Language Breakdown · Day 10</span><span class="label">Share / Shows</span></div>
+      <div id="langs"></div>
+    </div>
+    <div class="cell c6">
+      <div class="sec-head"><span class="label">Booking Pulse Feed</span><span class="label" id="feedCount">0 EVENTS</span></div>
+      <div class="feed" id="feed" role="log" aria-live="off"></div>
+    </div>
+  </section>
+
+  <section class="grid" aria-label="Controls" style="border-top:0">
+    <div class="cell c12">
+      <div class="sec-head"><span class="label">Simulation Controls</span><span class="label">State saved locally</span></div>
+      <div class="controls">
+        <button class="btn" id="toggle">Pause</button>
+        <div class="group" id="speeds" role="group" aria-label="Simulation speed">
+          <button class="btn" data-speed="1">1x</button>
+          <button class="btn" data-speed="5">5x</button>
+          <button class="btn" data-speed="10">10x</button>
+        </div>
+        <button class="btn" id="reset">Reset to Baseline</button>
+      </div>
+      <form class="override" id="override" autocomplete="off">
+        <label class="field"><span class="label">Set India Gross (₹ Cr)</span>
+          <input type="number" step="0.01" min="0" id="inIN" placeholder="841.66"></label>
+        <label class="field"><span class="label">Set Overseas Gross (₹ Cr)</span>
+          <input type="number" step="0.01" min="0" id="inOS" placeholder="408.50"></label>
+        <button class="btn" type="submit">Apply Override</button>
+      </form>
+    </div>
+  </section>
+
+  <footer>
+    <span>PROJECTED FROM LAST OFFICIAL UPDATE · EDIT data.json TO SYNC EVERYONE</span>
+    <span id="saved">—</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ===== CONFIG: edit here, or better, edit data.json ===== */
+  const CFG = {
+    india: 841.66,                       // ₹ Cr at asOf
+    overseas: 408.50,                    // ₹ Cr at asOf
+    asOf: "2026-11-15T16:10:00+05:30",   // when the figures above were true
+    // Estimated worldwide gross per day (₹ Cr), starting Day 11 (Sun 15 Nov).
+    // Based on Day 8-10 actuals: Thu 84, Fri 82, Sat 117 (Sun was ~0.8x of Sat in week 1).
+    forecastStart: "2026-11-15T00:00:00+05:30",
+    forecast: [92, 58, 55, 52, 50, 53, 72],  // Sun, Mon, Tue, Wed, Thu, Fri, Sat
+    weeklyDecay: 0.60,                   // each later week = previous week x this
+    indiaShare: 0.74,                    // India share of worldwide (Day 8-10 average)
+    dataUrl: "data.json",
+    syncEveryMs: 300000
+  };
+  const KEY = "ramayana-p1-tracker-v2";
+  const LANGS = [
+    { n:"Hindi",     pct:73.7, shows:18557 },
+    { n:"Kannada",   pct:7.4,  shows:893   },
+    { n:"Tamil",     pct:6.5,  shows:1290  },
+    { n:"Malayalam", pct:6.5,  shows:1127  },
+    { n:"Telugu",    pct:5.9,  shows:1584  }
+  ];
+
+  const $ = id => document.getElementById(id);
+  const fmt = (n, d=2) => n.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+  const pad = n => String(n).padStart(2,"0");
+  const stamp = () => { const d=new Date(); return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); };
+  const rnd = (a,b) => a + Math.random()*(b-a);
+  const toMs = s => { const t = Date.parse(s); return isFinite(t) ? t : NaN; };
+
+  /* ---------- Source of truth ---------- */
+  let src = { india:CFG.india, overseas:CFG.overseas, asOf:toMs(CFG.asOf),
+              fStart:toMs(CFG.forecastStart), fc:CFG.forecast.slice(), wd:CFG.weeklyDecay, share:CFG.indiaShare };
+  let override = null;                    // manual override, stored locally
+  let ui = { speed:1, paused:false, pausedAt:0 };
+
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (s) {
+      if ([1,5,10].includes(+s.speed)) ui.speed = +s.speed;
+      ui.paused = !!s.paused;
+      const o = s.override;
+      if (o && isFinite(o.india) && isFinite(o.overseas) && isFinite(o.asOf)) override = o;
+    }
+  } catch(e){}
+  if (ui.paused) ui.pausedAt = Date.now();
+
+  function activeSrc(){
+    if (override && override.asOf >= src.asOf)
+      return Object.assign({}, src, { india:override.india, overseas:override.overseas, asOf:override.asOf });
+    return src;
+  }
+  // Share of a day's collections booked by each IST hour (cumulative)
+  const CURVE = [[0,0],[6,0.02],[9,0.05],[12,0.20],[15,0.38],[18,0.62],[21,0.87],[24,1]];
+  function curve(h){
+    for (let i=1;i<CURVE.length;i++) if (h <= CURVE[i][0]) {
+      const p = CURVE[i-1], q = CURVE[i];
+      return p[1] + (q[1]-p[1]) * (h-p[0]) / (q[0]-p[0]);
+    }
+    return 1;
+  }
+  function dayTotal(s, k){ return k < s.fc.length ? s.fc[k] : dayTotal(s, k - s.fc.length) * s.wd; }
+  function cum(s, t){                       // forecast worldwide ₹ Cr booked from fStart up to t
+    const x = (t - s.fStart) / 864e5;
+    if (x <= 0) return 0;
+    const n = Math.min(Math.floor(x), 1500), f = x - Math.floor(x);
+    let sum = 0;
+    for (let k=0;k<n;k++) sum += dayTotal(s, k);
+    return sum + dayTotal(s, n) * curve(f * 24);
+  }
+  function values(t){
+    const s = activeSrc();
+    const delta = Math.max(0, cum(s, t) - cum(s, s.asOf));
+    return { i: s.india + delta * s.share, o: s.overseas + delta * (1 - s.share) };
+  }
+  const nowT = () => ui.paused ? ui.pausedAt : Date.now();
+
+  function save(){
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ speed:ui.speed, paused:ui.paused, override:override }));
+      $("saved").textContent = "SAVED " + stamp();
+    } catch(e){ $("saved").textContent = "STORAGE UNAVAILABLE"; }
+  }
+
+  /* ---------- Rolling digits ---------- */
+  function renderOdo(el, str, unit){
+    const key = str.replace(/[0-9]/g,"#");
+    if (el.dataset.shape !== key) {
+      el.dataset.shape = key;
+      el.innerHTML = "";
+      for (const ch of str) {
+        if (/[0-9]/.test(ch)) {
+          const col = document.createElement("span"); col.className = "col";
+          const strip = document.createElement("span"); strip.className = "strip";
+          for (let i=0;i<10;i++){ const s=document.createElement("span"); s.textContent=i; strip.appendChild(s); }
+          col.appendChild(strip); el.appendChild(col);
+        } else {
+          const c = document.createElement("span"); c.className = "ch"; c.textContent = ch; el.appendChild(c);
+        }
+      }
+      if (unit){ const u=document.createElement("span"); u.className="unit"; u.textContent=unit; el.appendChild(u); }
+    }
+    const strips = el.querySelectorAll(".strip");
+    let i = 0;
+    for (const ch of str) {
+      if (/[0-9]/.test(ch)) { strips[i++].style.transform = "translateY(" + (-parseInt(ch,10)) + "em)"; }
+    }
+    el.setAttribute("aria-label", str + (unit ? " " + unit : ""));
+  }
+
+  /* ---------- Render ---------- */
+  let session = 0;
+  function render(v){
+    const ww = v.i + v.o;
+    renderOdo($("odoWW"), "₹" + fmt(ww), "CR");
+    renderOdo($("odoIN"), "₹" + fmt(v.i), "CR");
+    renderOdo($("odoOS"), "₹" + fmt(v.o), "CR");
+    $("net").innerHTML  = "₹" + fmt(v.i * 0.8367) + "<small>CR</small>";
+    $("usd").innerHTML  = "$" + fmt(ww * 10 / 95, 1) + "<small>M</small>";
+    $("foot").innerHTML = fmt(v.i / 220, 2) + "<small>CR</small>";
+    $("sessionAdd").textContent = "+₹" + fmt(session) + " Cr";
+    $("speedEcho").textContent = ui.speed + "x";
+    $("dayEcho").textContent = Math.floor((nowT() - Date.parse("2026-11-05T00:00:00+05:30")) / 864e5) + 1;
+    const a = new Date(activeSrc().asOf);
+    $("asOfEcho").textContent = a.toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});
+
+    $("live").classList.toggle("paused", ui.paused);
+    $("liveText").textContent = ui.paused ? "[ PAUSED ]" : "[ LIVE ]";
+    $("toggle").textContent = ui.paused ? "Resume" : "Pause";
+    document.querySelectorAll("#speeds .btn").forEach(b => b.classList.toggle("active", +b.dataset.speed === ui.speed));
+  }
+
+  /* ---------- Language bars ---------- */
+  function buildLangs(){
+    const host = $("langs");
+    host.innerHTML = LANGS.map(l =>
+      '<div class="lang"><span class="name">'+l.n+'</span>' +
+      '<div class="bar" role="img" aria-label="'+l.n+' '+l.pct+'%"><i data-w="'+l.pct+'"></i></div>' +
+      '<span class="meta mono">'+l.pct.toFixed(1)+'% <span>· '+l.shows.toLocaleString("en-US")+'</span></span></div>'
+    ).join("");
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      host.querySelectorAll(".bar i").forEach(i => i.style.width = i.dataset.w + "%");
+    }));
+  }
+
+  /* ---------- Feed ---------- */
+  let feedCount = 0;
+  function pushFeed(html){
+    const feed = $("feed");
+    const row = document.createElement("div");
+    row.innerHTML = html;
+    feed.insertBefore(row, feed.firstChild);
+    while (feed.children.length > 80) feed.removeChild(feed.lastChild);
+    feedCount++;
+    $("feedCount").textContent = feedCount + " EVENTS";
+  }
+  function money(cr){
+    const r = cr * 1e7;
+    return r >= 1e5 ? "₹" + (r/1e5).toFixed(2) + "L" : "₹" + (r/1e3).toFixed(1) + "K";
+  }
+
+  /* ---------- Loop ---------- */
+  let last = values(nowT());
+  let timer = null;
+  function tick(){
+    const v = values(nowT());
+    const d = (v.i - last.i) + (v.o - last.o);
+    last = v;
+    if (d > 0) {
+      session += d;
+      const t = stamp();
+      $("lastPulse").textContent = t;
+      pushFeed('<span class="t">['+t+']</span><span class="p">+'+money(d)+' booked across '+Math.round(rnd(220,640))+' screens</span>');
+    }
+    render(v);
+  }
+  function schedule(){
+    clearTimeout(timer);
+    if (ui.paused) return;
+    timer = setTimeout(() => { tick(); schedule(); }, (3000 / ui.speed) * rnd(0.7, 1.3));
+  }
+  function resync(){ last = values(nowT()); render(last); }
+
+  /* ---------- Remote sync (data.json) ---------- */
+  function sync(){
+    fetch(CFG.dataUrl + "?t=" + Date.now(), { cache:"no-store" })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(j => {
+        const asOf = toMs(j.asOf);
+        if (!isFinite(j.india) || !isFinite(j.overseas) || !isFinite(asOf)) return;
+        if (asOf <= src.asOf) return;
+        const fs = toMs(j.forecastStart);
+        const okFc = Array.isArray(j.forecast) && j.forecast.length > 0 && j.forecast.every(x => isFinite(x) && x >= 0) && isFinite(fs);
+        src = {
+          india:+j.india, overseas:+j.overseas, asOf:asOf,
+          fStart: okFc ? fs : src.fStart,
+          fc: okFc ? j.forecast.map(Number) : src.fc,
+          wd: isFinite(j.weeklyDecay) && j.weeklyDecay >= 0 && j.weeklyDecay <= 1 ? +j.weeklyDecay : src.wd,
+          share: isFinite(j.indiaShare) && j.indiaShare >= 0 && j.indiaShare <= 1 ? +j.indiaShare : src.share
+        };
+        pushFeed('<span class="t">['+stamp()+']</span><span class="p">SYNCED data.json · ₹'+fmt(src.india+src.overseas)+' CR</span>');
+        resync();
+      })
+      .catch(() => {});
+  }
+
+  /* ---------- Controls ---------- */
+  $("toggle").addEventListener("click", () => {
+    if (ui.paused) { ui.paused = false; }
+    else { ui.paused = true; ui.pausedAt = Date.now(); }
+    pushFeed('<span class="t">['+stamp()+']</span><span class="o">'+(ui.paused?'DISPLAY PAUSED':'RESUMED · CAUGHT UP TO CLOCK')+'</span>');
+    resync(); save(); schedule();
+  });
+  $("speeds").addEventListener("click", e => {
+    const b = e.target.closest("[data-speed]"); if (!b) return;
+    ui.speed = +b.dataset.speed;
+    render(last); save(); schedule();
+  });
+  $("reset").addEventListener("click", () => {
+    override = null; session = 0;
+    pushFeed('<span class="t">['+stamp()+']</span><span class="o">RESET · MANUAL OVERRIDE CLEARED</span>');
+    resync(); save();
+  });
+  $("override").addEventListener("submit", e => {
+    e.preventDefault();
+    const a = parseFloat($("inIN").value), b = parseFloat($("inOS").value);
+    const cur = values(Date.now());
+    const ok = x => isFinite(x) && x >= 0;
+    if (!ok(a) && !ok(b)) return;
+    override = { india: ok(a) ? a : cur.i, overseas: ok(b) ? b : cur.o, asOf: Date.now() };
+    const parts = [];
+    if (ok(a)) parts.push("INDIA ₹"+fmt(a)+" CR");
+    if (ok(b)) parts.push("OVERSEAS ₹"+fmt(b)+" CR");
+    pushFeed('<span class="t">['+stamp()+']</span><span class="p">MANUAL OVERRIDE · '+parts.join(" · ")+'</span>');
+    $("inIN").value = ""; $("inOS").value = "";
+    resync(); save();
+  });
+
+  /* ---------- Clock + init ---------- */
+  setInterval(() => { $("clock").textContent = stamp(); }, 1000);
+  $("clock").textContent = stamp();
+
+  buildLangs();
+  pushFeed('<span class="t">['+stamp()+']</span><span class="o">TERMINAL ONLINE · PROJECTING FROM LAST OFFICIAL UPDATE</span>');
+  render(last);
+  save();
+  schedule();
+  sync();
+  setInterval(sync, CFG.syncEveryMs);
+})();
+</script>
+</body>
+</html>
