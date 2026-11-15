@@ -142,6 +142,7 @@
     <div class="hero-sub mono">
       <span>DAY <b>10</b></span>
       <span>SPEED <b id="speedEcho">1x</b></span>
+      <span>AS OF <b id="asOfEcho">—</b></span>
       <span>LAST PULSE <b id="lastPulse">—</b></span>
       <span>SESSION <b id="sessionAdd">+₹0.00 Cr</b></span>
     </div>
@@ -215,7 +216,7 @@
   </section>
 
   <footer>
-    <span>FIGURES SIMULATED BETWEEN OFFICIAL UPDATES · BASELINE: ₹841.66 / ₹408.50 CR</span>
+    <span>PROJECTED FROM LAST OFFICIAL UPDATE · EDIT data.json TO SYNC EVERYONE</span>
     <span id="saved">—</span>
   </footer>
 </div>
@@ -224,8 +225,18 @@
 (function(){
   "use strict";
 
-  const BASE = { india: 841.66, overseas: 408.50 };
-  const KEY = "ramayana-p1-tracker-v1";
+  /* ===== CONFIG: edit here, or better, edit data.json ===== */
+  const CFG = {
+    india: 841.66,                       // ₹ Cr at asOf
+    overseas: 408.50,                    // ₹ Cr at asOf
+    asOf: "2026-11-15T16:10:00+05:30",   // when the figures above were true
+    rateIndia: 14,                       // estimated ₹ Cr / day at asOf
+    rateOverseas: 5,                     // estimated ₹ Cr / day at asOf
+    decay: 0.92,                         // daily multiplier on the rate (0.92 = -8%/day)
+    dataUrl: "data.json",
+    syncEveryMs: 300000
+  };
+  const KEY = "ramayana-p1-tracker-v2";
   const LANGS = [
     { n:"Hindi",     pct:73.7, shows:18557 },
     { n:"Kannada",   pct:7.4,  shows:893   },
@@ -238,25 +249,47 @@
   const fmt = (n, d=2) => n.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
   const pad = n => String(n).padStart(2,"0");
   const stamp = () => { const d=new Date(); return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds()); };
+  const rnd = (a,b) => a + Math.random()*(b-a);
+  const toMs = s => { const t = Date.parse(s); return isFinite(t) ? t : NaN; };
 
-  /* ---------- State ---------- */
-  let state = { india:BASE.india, overseas:BASE.overseas, speed:1, paused:false, session:0 };
+  /* ---------- Source of truth ---------- */
+  let src = { india:CFG.india, overseas:CFG.overseas, asOf:toMs(CFG.asOf), rI:CFG.rateIndia, rO:CFG.rateOverseas, decay:CFG.decay };
+  let override = null;                    // manual override, stored locally
+  let ui = { speed:1, paused:false, pausedAt:0 };
+
   try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (isFinite(s.india) && isFinite(s.overseas)) {
-        state.india = +s.india; state.overseas = +s.overseas;
-        state.speed = [1,5,10].includes(+s.speed) ? +s.speed : 1;
-        state.paused = !!s.paused;
-        state.session = isFinite(s.session) ? +s.session : 0;
-      }
+    const s = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (s) {
+      if ([1,5,10].includes(+s.speed)) ui.speed = +s.speed;
+      ui.paused = !!s.paused;
+      const o = s.override;
+      if (o && isFinite(o.india) && isFinite(o.overseas) && isFinite(o.asOf)) override = o;
     }
   } catch(e){}
+  if (ui.paused) ui.pausedAt = Date.now();
+
+  function activeSrc(){
+    if (override && override.asOf >= src.asOf)
+      return Object.assign({}, src, { india:override.india, overseas:override.overseas, asOf:override.asOf });
+    return src;
+  }
+  // Closed-form growth with a daily-decaying rate: base + r0 * (1 - decay^t) / -ln(decay)
+  function grow(base, rate, decay, ms){
+    const d = Math.max(0, ms) / 864e5;
+    const k = -Math.log(decay);
+    return k > 0 ? base + rate * (1 - Math.exp(-k * d)) / k : base + rate * d;
+  }
+  function values(t){
+    const s = activeSrc();
+    return { i: grow(s.india, s.rI, s.decay, t - s.asOf), o: grow(s.overseas, s.rO, s.decay, t - s.asOf) };
+  }
+  const nowT = () => ui.paused ? ui.pausedAt : Date.now();
 
   function save(){
-    try { localStorage.setItem(KEY, JSON.stringify(state)); $("saved").textContent = "SAVED " + stamp(); }
-    catch(e){ $("saved").textContent = "STORAGE UNAVAILABLE"; }
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ speed:ui.speed, paused:ui.paused, override:override }));
+      $("saved").textContent = "SAVED " + stamp();
+    } catch(e){ $("saved").textContent = "STORAGE UNAVAILABLE"; }
   }
 
   /* ---------- Rolling digits ---------- */
@@ -286,21 +319,24 @@
   }
 
   /* ---------- Render ---------- */
-  function render(){
-    const ww = state.india + state.overseas;
+  let session = 0;
+  function render(v){
+    const ww = v.i + v.o;
     renderOdo($("odoWW"), "₹" + fmt(ww), "CR");
-    renderOdo($("odoIN"), "₹" + fmt(state.india), "CR");
-    renderOdo($("odoOS"), "₹" + fmt(state.overseas), "CR");
-    $("net").innerHTML  = "₹" + fmt(state.india * 0.8367) + "<small>CR</small>";
+    renderOdo($("odoIN"), "₹" + fmt(v.i), "CR");
+    renderOdo($("odoOS"), "₹" + fmt(v.o), "CR");
+    $("net").innerHTML  = "₹" + fmt(v.i * 0.8367) + "<small>CR</small>";
     $("usd").innerHTML  = "$" + fmt(ww * 10 / 95, 1) + "<small>M</small>";
-    $("foot").innerHTML = fmt(state.india / 220, 2) + "<small>CR</small>";
-    $("sessionAdd").textContent = "+₹" + fmt(state.session) + " Cr";
-    $("speedEcho").textContent = state.speed + "x";
+    $("foot").innerHTML = fmt(v.i / 220, 2) + "<small>CR</small>";
+    $("sessionAdd").textContent = "+₹" + fmt(session) + " Cr";
+    $("speedEcho").textContent = ui.speed + "x";
+    const a = new Date(activeSrc().asOf);
+    $("asOfEcho").textContent = a.toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:false});
 
-    $("live").classList.toggle("paused", state.paused);
-    $("liveText").textContent = state.paused ? "[ PAUSED ]" : "[ LIVE ]";
-    $("toggle").textContent = state.paused ? "Resume" : "Pause";
-    document.querySelectorAll("#speeds .btn").forEach(b => b.classList.toggle("active", +b.dataset.speed === state.speed));
+    $("live").classList.toggle("paused", ui.paused);
+    $("liveText").textContent = ui.paused ? "[ PAUSED ]" : "[ LIVE ]";
+    $("toggle").textContent = ui.paused ? "Resume" : "Pause";
+    document.querySelectorAll("#speeds .btn").forEach(b => b.classList.toggle("active", +b.dataset.speed === ui.speed));
   }
 
   /* ---------- Language bars ---------- */
@@ -327,75 +363,96 @@
     feedCount++;
     $("feedCount").textContent = feedCount + " EVENTS";
   }
-  const rnd = (a,b) => a + Math.random()*(b-a);
-
-  function tick(){
-    // Weighted pulse: mostly India, sometimes overseas
-    const overseas = Math.random() < 0.28;
-    const lakhs = overseas ? rnd(0.6, 3.2) : rnd(0.9, 4.6);
-    const screens = Math.round(overseas ? rnd(40, 190) : rnd(220, 640));
-    const cr = lakhs / 100;
-    if (overseas) state.overseas += cr; else state.india += cr;
-    state.session += cr;
-    const t = stamp();
-    $("lastPulse").textContent = t;
-    pushFeed(
-      '<span class="t">['+t+']</span>' +
-      '<span class="'+(overseas?'o':'p')+'">+₹'+lakhs.toFixed(2)+'L booked across '+screens+' screens'+(overseas?' · OVERSEAS':'')+'</span>'
-    );
-    render();
-    save();
+  function money(cr){
+    const r = cr * 1e7;
+    return r >= 1e5 ? "₹" + (r/1e5).toFixed(2) + "L" : "₹" + (r/1e3).toFixed(1) + "K";
   }
 
   /* ---------- Loop ---------- */
+  let last = values(nowT());
   let timer = null;
+  function tick(){
+    const v = values(nowT());
+    const d = (v.i - last.i) + (v.o - last.o);
+    last = v;
+    if (d > 0) {
+      session += d;
+      const t = stamp();
+      $("lastPulse").textContent = t;
+      pushFeed('<span class="t">['+t+']</span><span class="p">+'+money(d)+' booked across '+Math.round(rnd(220,640))+' screens</span>');
+    }
+    render(v);
+  }
   function schedule(){
     clearTimeout(timer);
-    if (state.paused) return;
-    const base = 2200 / state.speed;
-    timer = setTimeout(() => { tick(); schedule(); }, base * rnd(0.6, 1.4));
+    if (ui.paused) return;
+    timer = setTimeout(() => { tick(); schedule(); }, (4000 / ui.speed) * rnd(0.7, 1.3));
+  }
+  function resync(){ last = values(nowT()); render(last); }
+
+  /* ---------- Remote sync (data.json) ---------- */
+  function sync(){
+    fetch(CFG.dataUrl + "?t=" + Date.now(), { cache:"no-store" })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(j => {
+        const asOf = toMs(j.asOf);
+        if (!isFinite(j.india) || !isFinite(j.overseas) || !isFinite(asOf)) return;
+        if (asOf <= src.asOf) return;
+        src = {
+          india:+j.india, overseas:+j.overseas, asOf:asOf,
+          rI: isFinite(j.rateIndia) ? +j.rateIndia : src.rI,
+          rO: isFinite(j.rateOverseas) ? +j.rateOverseas : src.rO,
+          decay: isFinite(j.decay) && j.decay > 0 && j.decay < 1 ? +j.decay : src.decay
+        };
+        pushFeed('<span class="t">['+stamp()+']</span><span class="p">SYNCED data.json · ₹'+fmt(src.india+src.overseas)+' CR</span>');
+        resync();
+      })
+      .catch(() => {});
   }
 
   /* ---------- Controls ---------- */
   $("toggle").addEventListener("click", () => {
-    state.paused = !state.paused;
-    pushFeed('<span class="t">['+stamp()+']</span><span class="o">'+(state.paused?'SIMULATION PAUSED':'SIMULATION RESUMED')+'</span>');
-    render(); save(); schedule();
+    if (ui.paused) { ui.paused = false; }
+    else { ui.paused = true; ui.pausedAt = Date.now(); }
+    pushFeed('<span class="t">['+stamp()+']</span><span class="o">'+(ui.paused?'DISPLAY PAUSED':'RESUMED · CAUGHT UP TO CLOCK')+'</span>');
+    resync(); save(); schedule();
   });
   $("speeds").addEventListener("click", e => {
     const b = e.target.closest("[data-speed]"); if (!b) return;
-    state.speed = +b.dataset.speed;
-    render(); save(); schedule();
+    ui.speed = +b.dataset.speed;
+    render(last); save(); schedule();
   });
   $("reset").addEventListener("click", () => {
-    state.india = BASE.india; state.overseas = BASE.overseas; state.session = 0;
-    pushFeed('<span class="t">['+stamp()+']</span><span class="o">RESET TO BASELINE</span>');
-    render(); save();
+    override = null; session = 0;
+    pushFeed('<span class="t">['+stamp()+']</span><span class="o">RESET · MANUAL OVERRIDE CLEARED</span>');
+    resync(); save();
   });
   $("override").addEventListener("submit", e => {
     e.preventDefault();
     const a = parseFloat($("inIN").value), b = parseFloat($("inOS").value);
-    let changed = [];
-    if (isFinite(a) && a >= 0) { state.india = a; changed.push("INDIA ₹"+fmt(a)+" CR"); }
-    if (isFinite(b) && b >= 0) { state.overseas = b; changed.push("OVERSEAS ₹"+fmt(b)+" CR"); }
-    if (changed.length) {
-      pushFeed('<span class="t">['+stamp()+']</span><span class="p">MANUAL OVERRIDE · '+changed.join(" · ")+'</span>');
-      $("inIN").value = ""; $("inOS").value = "";
-      render(); save();
-    }
+    const cur = values(Date.now());
+    const ok = x => isFinite(x) && x >= 0;
+    if (!ok(a) && !ok(b)) return;
+    override = { india: ok(a) ? a : cur.i, overseas: ok(b) ? b : cur.o, asOf: Date.now() };
+    const parts = [];
+    if (ok(a)) parts.push("INDIA ₹"+fmt(a)+" CR");
+    if (ok(b)) parts.push("OVERSEAS ₹"+fmt(b)+" CR");
+    pushFeed('<span class="t">['+stamp()+']</span><span class="p">MANUAL OVERRIDE · '+parts.join(" · ")+'</span>');
+    $("inIN").value = ""; $("inOS").value = "";
+    resync(); save();
   });
 
-  /* ---------- Clock ---------- */
+  /* ---------- Clock + init ---------- */
   setInterval(() => { $("clock").textContent = stamp(); }, 1000);
   $("clock").textContent = stamp();
 
-  /* ---------- Init ---------- */
   buildLangs();
-  pushFeed('<span class="t">['+stamp()+']</span><span class="o">TERMINAL ONLINE · FEED ARMED</span>');
-  // Initial render: seed odometers at zero shape then set value for a roll-in
-  render();
+  pushFeed('<span class="t">['+stamp()+']</span><span class="o">TERMINAL ONLINE · PROJECTING FROM LAST OFFICIAL UPDATE</span>');
+  render(last);
   save();
   schedule();
+  sync();
+  setInterval(sync, CFG.syncEveryMs);
 })();
 </script>
 </body>
